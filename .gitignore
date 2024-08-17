@@ -1,3 +1,6 @@
 *.d
 *.o
 *.so
+
+.vscode/
+build/
