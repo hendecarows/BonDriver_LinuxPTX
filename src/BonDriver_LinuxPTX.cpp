@@ -25,6 +25,7 @@ namespace BonDriver_LinuxPTX {
 
 BonDriver::BonDriver(Config& config)
 	: multi_(false),
+	always_ptx_start_streaming_(false),
 	fd_(-1),
 	lnb_power_state_(false),
 	current_system_(::PTX_UNSPECIFIED_SYSTEM),
@@ -37,6 +38,11 @@ BonDriver::BonDriver(Config& config)
 	auto sct = config.Get("BonDriver_LinuxPTX");
 
 	device_ = sct.Get("Device");
+	if (device_.find("/dev/isdb2056video") == 0 || device_.find("/dev/pxm1urvideo")) {
+		// DTV02-1T1S-UとPX-M1URについては、放送波変更を伴うチャンネル変更をする場合には
+		// 出力ピンの変更のためにPTX_START_STREAMINGを実行する必要がある。
+		always_ptx_start_streaming_ = true;
+	}
 
 	if (!cv.Utf8ToUtf16(sct.Get("Name", "LinuxPTX"), name_))
 		throw std::runtime_error("BonDriver::BonDriver: CharCodeConv::Utf8ToUtf16() failed");
@@ -305,6 +311,17 @@ const BOOL BonDriver::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 
 	if (::ioctl(fd_, PTX_SET_CHANNEL, &freq) == -1)
 		return FALSE;
+
+	if (always_ptx_start_streaming_) {
+		if ((current_system_ != ptx_system_type::PTX_UNSPECIFIED_SYSTEM) && (system != current_system_)) {
+			// DTV02-1T1S-UとPX-M1URについては、放送波変更を伴うチャンネル変更は、PTX_START_STREAMINGを実行し、
+			// TS出力ピンを切り替える必要があるが、TS転送スレッド動作中は実行できない。まず、PTX_STOP_STREAMINGを実行し
+			// TS転送スレッドを停止してからPTX_START_STREAMINGを実行する
+			::ioctl(fd_, PTX_STOP_STREAMING);
+			if (::ioctl(fd_, PTX_START_STREAMING) < 0)
+				return FALSE;
+		}
+	}
 
 	current_system_.store(system, std::memory_order_release);
 	current_space_.store(dwSpace, std::memory_order_release);

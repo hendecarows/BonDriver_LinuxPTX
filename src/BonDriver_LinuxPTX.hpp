@@ -123,6 +123,7 @@ private:
 	std::string device_;
 	bool lnb_power_;
 	bool multi_;
+	bool always_ptx_start_streaming_;
 	std::vector<Space> space_;
 	std::atomic<int> fd_;
 	bool lnb_power_state_;
