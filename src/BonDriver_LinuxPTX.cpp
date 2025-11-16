@@ -38,7 +38,8 @@ BonDriver::BonDriver(Config& config)
 	auto sct = config.Get("BonDriver_LinuxPTX");
 
 	device_ = sct.Get("Device");
-	if (device_.find("/dev/isdb2056video") == 0 || device_.find("/dev/pxm1urvideo")) {
+	if (device_.find("/dev/isdb2056video") != std::string::npos ||
+		device_.find("/dev/pxm1urvideo") != std::string::npos) {
 		// DTV02-1T1S-UとPX-M1URについては、放送波変更を伴うチャンネル変更をする場合には
 		// 出力ピンの変更のためにPTX_START_STREAMINGを実行する必要がある。
 		always_ptx_start_streaming_ = true;
