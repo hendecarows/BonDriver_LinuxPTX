@@ -8,7 +8,8 @@
 #include "BonDriver_LinuxPTX.hpp"
 
 #include <cstddef>
-#include <cstring>
+#include <string>
+#include <filesystem>
 #include <cmath>
 #include <stdexcept>
 #include <chrono>
@@ -64,8 +65,9 @@ BonDriver::BonDriver(Config& config)
 	if (max_buffers < min_buffers)
 		throw std::runtime_error("BonDriver::BonDriver: 'MaximumNumberOfBuffers' < 'MinimumNumberOfBuffers'");
 
+	multi_ = sct.Get("SetSystemMode", 1) ? true : false;
+
 	std::vector<std::string> spaces;
-	bool isdbt = false, isdbs = false;
 
 	util::Separate(config.Get("Space").Get("Space"), spaces);
 	for (auto v : spaces) {
@@ -78,10 +80,8 @@ BonDriver::BonDriver(Config& config)
 
 		if (!sys_str.compare("ISDB-T")) {
 			sys = ::PTX_ISDB_T_SYSTEM;
-			isdbt = true;
 		} else if (!sys_str.compare("ISDB-S")) {
 			sys = ::PTX_ISDB_S_SYSTEM;
-			isdbs = true;
 		} else {
 			throw std::runtime_error("BonDriver::BonDriver: unknown system");
 		}
@@ -89,9 +89,6 @@ BonDriver::BonDriver(Config& config)
 		auto& space = space_.emplace_back(cv, subspace_sct.Get("Name"), sys);
 		space.AddChannel(cv, subspace_ch_sct);
 	}
-
-	if (isdbt && isdbs)
-		multi_ = true;
 
 	ioq_.reset(new IoQueue(IoQueue::IoOperation::READ, iorp_, 188 * num_packets, max_buffers, min_buffers));
 }
@@ -423,7 +420,7 @@ bool BonDriver::ReadProvider::Do(void *buf, std::size_t& size)
 	::ssize_t count;
 
 	count = ::read(parent_.fd_, buf, size);
-	if (count < 0)
+	if (count <= 0)
 		return false;
 
 	size = count;
@@ -443,20 +440,16 @@ BonDriver * BonDriver::GetInstance()
 			if (!::dladdr(reinterpret_cast<void *>(GetInstance), &dli))
 				return nullptr;
 
-			std::size_t path_len = std::strlen(dli.dli_fname);
-			if (path_len < 3 || std::strcmp(&dli.dli_fname[path_len - 3], ".so"))
+			const std::filesystem::path library_path(dli.dli_fname);
+			if (library_path.extension() != ".so")
 				return nullptr;
 
-			auto path = std::make_unique<char[]>(path_len + 5);
-			std::strncpy(path.get(), dli.dli_fname, path_len - 2);
-			std::strncpy(path.get() + path_len - 2, "ini", 4);
+			auto config_path = library_path;
+			config_path.replace_extension(".ini");
 
 			Config config;
-			if (!config.Load(path.get())) {
-				std::strncpy(path.get() + path_len - 2, "so.ini", 7);
-				if (!config.Load(path.get()))
-					return nullptr;
-			}
+			if (!config.Load(config_path.string()) && !config.Load(library_path.string() + ".ini"))
+				return nullptr;
 
 			instance_ = new BonDriver(config);
 		} catch (...) {

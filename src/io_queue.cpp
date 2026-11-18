@@ -69,6 +69,10 @@ bool IoQueue::Start()
 
 	data_lock.unlock();
 
+	// Start reading before publishing the worker so Stop() cannot run first.
+	if (io_op_ == IoOperation::READ && !iop_.Start())
+		return false;
+
 	th_.reset(new std::thread((io_op_ == IoOperation::READ) ? &BonDriver_LinuxPTX::IoQueue::ReadWorker : &BonDriver_LinuxPTX::IoQueue::WriteWorker, this));
 	return true;
 }
@@ -83,6 +87,8 @@ bool IoQueue::Stop()
 	if (io_op_ == IoOperation::READ) {
 		// stop ReadWorker
 		PushBackFreeBuffer(nullptr);
+		// Unblock an outstanding read before waiting for the worker.
+		iop_.Stop();
 	} else {
 		if (current_buf_) {
 			// flush
@@ -341,9 +347,6 @@ std::unique_ptr<IoQueue::IoBuffer> IoQueue::PopBackFreeBuffer(bool wait)
 
 void IoQueue::ReadWorker()
 {
-	if (!iop_.Start())
-		return;
-
 	while (true) {
 		auto buf = PopBackFreeBuffer(true);
 		if (!buf) {
@@ -373,8 +376,6 @@ void IoQueue::ReadWorker()
 			break;
 		}
 	}
-
-	iop_.Stop();
 }
 
 void IoQueue::WriteWorker()
